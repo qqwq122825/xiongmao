@@ -5581,8 +5581,8 @@ function broadcastToSubscribers(deviceId, msg) {
 // ============================================================
 // WebSocket 升级处理
 // ============================================================
-server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url, `https://${req.headers.host}`);
+function handleWsUpgrade(req, socket, head) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname === '/ws/panel') {
     // 管理端 WebSocket
@@ -5598,7 +5598,9 @@ server.on('upgrade', (req, socket, head) => {
     console.log(`[WS] 未知路径连接: ${url.pathname}`);
     wss.handleUpgrade(req, socket, head, (ws) => handleDeviceWs(ws, req));
   }
-});
+}
+
+server.on('upgrade', handleWsUpgrade);
 
 // ============================================================
 // 管理端 WebSocket
@@ -6860,6 +6862,7 @@ app.use((req, res, next) => {
 // 同时在 80 端口启动一个辅助的 HTTP 监听服务，处理 HTTP 访问及 CDN 回源流量
 const httpPort = Number(process.env.PORT || process.env.HTTP_PORT || 8080);
 const httpServer = http.createServer(app);
+httpServer.on('upgrade', handleWsUpgrade);
 httpServer.listen(httpPort, '0.0.0.0', () => {
   console.log(`[HTTP] ✅ HTTP 辅助回源服务已在端口 ${httpPort} 启动完成`);
 });
