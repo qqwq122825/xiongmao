@@ -1,0 +1,15 @@
+[Unit]
+Description=frps tunnel service (frp v0.55.0)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/frps
+ExecStart=/opt/frps/frps -c /opt/frps/frps.ini
+Restart=always
+RestartSec=3
+StandardOutput=append:/tmp/frps.log
+StandardError=append:/tmp/frps.log
+
+[Install]
+WantedBy=multi-user.target

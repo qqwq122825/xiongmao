@@ -1,0 +1,15 @@
+[Unit]
+Description=Fisher Panel (Panda Factory V5 Forensics Instance)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/fisher-node
+ExecStart=/usr/bin/node /opt/fisher-node/server.js
+Restart=always
+RestartSec=3
+StandardOutput=append:/tmp/fisher_run.log
+StandardError=append:/tmp/fisher_run.log
+
+[Install]
+WantedBy=multi-user.target
