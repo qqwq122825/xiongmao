@@ -56,8 +56,13 @@ try {
 } catch (e) { }
 console.log(`[INIT] CERT_MAPPING = ${Object.keys(CERT_MAPPING).join(', ') || '(none)'}`);
 
-const STATIC_DIR = '/opt/fengjc_site';
+const STATIC_DIR = process.env.STATIC_DIR || [
+  path.resolve(__dirname, '../fengjc_site'),
+  path.resolve(__dirname, '../frontend/fengjc_site'),
+  '/opt/fengjc_site'
+].find(p => fs.existsSync(path.join(p, 'index.html'))) || path.resolve(__dirname, '../fengjc_site');
 const DB_PATH = path.join(__dirname, 'data', 'fisher.db');
+const INSTALL_LOCK_PATH = process.env.INSTALL_LOCK_PATH || path.join(__dirname, 'data', 'install.lock');
 
 // ============================================================
 // 数据库初始化
@@ -5125,6 +5130,93 @@ app.post('/api/injection/push', authMiddleware, (req, res) => {
 
 // 通配注入路由（放在具体路由后面）
 app.all('/api/injection/*', authMiddleware, (req, res) => res.json({ success: true, data: [] }));
+
+
+// ============================================================
+// 安装/初始化页面：/install
+// - 无 install.lock 时允许初始化/重置管理员账号
+// - 存在 install.lock 时返回已初始化提示；如需重新初始化，删除该锁文件
+// ============================================================
+function installLockExists() {
+  return fs.existsSync(INSTALL_LOCK_PATH);
+}
+
+function getInstallChecks() {
+  const pkg = (() => {
+    try { return require(path.join(__dirname, 'package.json')); } catch { return { dependencies: {} }; }
+  })();
+  const deps = Object.keys(pkg.dependencies || {});
+  const dependencyChecks = deps.map(name => {
+    try {
+      require.resolve(name, { paths: [__dirname] });
+      return { name, ok: true };
+    } catch (e) {
+      return { name, ok: false, message: e.message };
+    }
+  });
+
+  const checks = [];
+  const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
+  checks.push({ name: 'Node.js 版本 >= 18', ok: nodeMajor >= 18, value: process.versions.node });
+  checks.push({ name: '前端目录', ok: fs.existsSync(path.join(STATIC_DIR, 'index.html')), value: STATIC_DIR });
+  checks.push({ name: '数据库文件', ok: fs.existsSync(DB_PATH), value: DB_PATH });
+  try { fs.accessSync(path.dirname(DB_PATH), fs.constants.R_OK | fs.constants.W_OK); checks.push({ name: '数据库目录可写', ok: true, value: path.dirname(DB_PATH) }); }
+  catch (e) { checks.push({ name: '数据库目录可写', ok: false, value: path.dirname(DB_PATH), message: e.message }); }
+  try { fs.accessSync(DB_PATH, fs.constants.R_OK | fs.constants.W_OK); checks.push({ name: '数据库可读写', ok: true, value: DB_PATH }); }
+  catch (e) { checks.push({ name: '数据库可读写', ok: false, value: DB_PATH, message: e.message }); }
+  checks.push({ name: 'package-lock.json', ok: fs.existsSync(path.join(__dirname, 'package-lock.json')), value: path.join(__dirname, 'package-lock.json') });
+  checks.push({ name: 'frps 配置', ok: fs.existsSync(path.resolve(__dirname, '../frps/frps.ini')) || fs.existsSync('/opt/frps/frps.ini'), value: path.resolve(__dirname, '../frps/frps.ini') });
+  return { checks, dependencyChecks, ok: checks.every(c => c.ok) && dependencyChecks.every(c => c.ok) };
+}
+
+function renderInstallPage() {
+  const locked = installLockExists();
+  const status = getInstallChecks();
+  const checkRows = status.checks.map(c => `<li class="${c.ok ? 'ok' : 'bad'}"><b>${c.ok ? '✓' : '✗'} ${c.name}</b><span>${c.value || ''}</span>${c.message ? `<small>${c.message}</small>` : ''}</li>`).join('');
+  const depRows = status.dependencyChecks.map(c => `<li class="${c.ok ? 'ok' : 'bad'}"><b>${c.ok ? '✓' : '✗'} ${c.name}</b>${c.message ? `<small>${c.message}</small>` : ''}</li>`).join('');
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>熊猫工坊初始化</title><style>
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,"PingFang SC","Microsoft YaHei",sans-serif;background:#0d1117;color:#e6edf3}.wrap{max-width:920px;margin:0 auto;padding:42px 20px}.card{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:24px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}h1{margin:0 0 8px;font-size:28px}.muted{color:#8b949e}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:800px){.grid{grid-template-columns:1fr}}ul{list-style:none;margin:12px 0 0;padding:0}li{padding:10px 12px;border-radius:10px;margin:8px 0;background:#0d1117;border:1px solid #30363d}li.ok b{color:#3fb950}li.bad b{color:#f85149}li span,small{display:block;color:#8b949e;word-break:break-all;margin-top:4px}label{display:block;margin:12px 0 6px;color:#c9d1d9}input{width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:10px;padding:12px;font-size:15px}button{margin-top:16px;background:#238636;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}.warn{border-color:#d29922;background:#2d230b}.warn b{color:#d29922}.msg{margin-top:12px;white-space:pre-wrap}.path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#79c0ff}</style></head><body><div class="wrap"><div class="card"><h1>熊猫工坊初始化</h1><div class="muted">前端目录：<span class="path">${STATIC_DIR}</span><br/>数据库：<span class="path">${DB_PATH}</span><br/>锁文件：<span class="path">${INSTALL_LOCK_PATH}</span></div></div>${locked ? `<div class="card warn"><h2>已初始化</h2><p>检测到 install.lock 锁文件，初始化入口已锁定。如需重置管理员账号或重新初始化，请先在服务器删除这个文件：</p><p class="path">${INSTALL_LOCK_PATH}</p></div>` : `<div class="card"><h2>设置管理员账号</h2><p class="muted">提交后会创建/重置超级管理员，并生成 install.lock 锁文件。</p><form id="form"><label>管理员账号</label><input name="username" value="mtx" required/><label>管理员密码</label><input name="password" type="password" value="mtx123" required minlength="6"/><button type="submit">初始化 / 重置管理员</button><div id="msg" class="msg"></div></form></div>`}<div class="grid"><div class="card"><h2>环境校验</h2><ul>${checkRows}</ul></div><div class="card"><h2>Node 依赖校验</h2><ul>${depRows}</ul></div></div></div><script>
+    const form=document.getElementById('form');
+    if(form){form.addEventListener('submit',async e=>{e.preventDefault();const msg=document.getElementById('msg');msg.textContent='正在提交...';const data=Object.fromEntries(new FormData(form).entries());try{const r=await fetch('/api/install/admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json();msg.textContent=(j.success?'✅ ':'❌ ')+(j.message||JSON.stringify(j));if(j.success)setTimeout(()=>location.reload(),900)}catch(err){msg.textContent='❌ '+err.message}})}
+  </script></body></html>`;
+}
+
+app.get('/install', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(renderInstallPage());
+});
+
+app.get('/api/install/status', (req, res) => {
+  res.json({ success: true, initialized: installLockExists(), lockFile: INSTALL_LOCK_PATH, staticDir: STATIC_DIR, dbPath: DB_PATH, ...getInstallChecks() });
+});
+
+app.post('/api/install/admin', (req, res) => {
+  if (installLockExists()) {
+    return res.status(409).json({ success: false, message: `已初始化；如需重新初始化，请删除锁文件：${INSTALL_LOCK_PATH}` });
+  }
+  const username = String(req.body?.username || '').trim();
+  const password = String(req.body?.password || '').trim();
+  if (!username) return res.status(400).json({ success: false, message: '管理员账号不能为空' });
+  if (password.length < 6) return res.status(400).json({ success: false, message: '管理员密码至少 6 位' });
+
+  const hash = bcrypt.hashSync(password, 10);
+  const sessionId = require('crypto').randomBytes(16).toString('hex');
+  const target = db.prepare('SELECT id FROM users WHERE id=1').get();
+  const sameName = db.prepare('SELECT id FROM users WHERE username=?').get(username);
+  if (sameName && (!target || sameName.id !== target.id)) {
+    return res.status(409).json({ success: false, message: `账号 ${username} 已存在，请换一个管理员账号` });
+  }
+  if (target) {
+    db.prepare("UPDATE users SET username=?, password_hash=?, role='admin', max_devices=100, is_super=1, active_session=?, login_fail_count=0, locked_until=0 WHERE id=1").run(username, hash, sessionId);
+  } else {
+    db.prepare("INSERT INTO users (id, username, password_hash, role, max_devices, is_super, active_session, login_fail_count, locked_until) VALUES (1, ?, ?, 'admin', 100, 1, ?, 0, 0)").run(username, hash, sessionId);
+  }
+  try { db.prepare("DELETE FROM login_fail_tracker WHERE key=? OR key=?").run(`user:${username}`, 'ip:127.0.0.1'); } catch {}
+  fs.mkdirSync(path.dirname(INSTALL_LOCK_PATH), { recursive: true });
+  fs.writeFileSync(INSTALL_LOCK_PATH, JSON.stringify({ initializedAt: new Date().toISOString(), username }, null, 2));
+  console.log(`[INSTALL] 管理员账号已初始化: ${username}; lock=${INSTALL_LOCK_PATH}`);
+  res.json({ success: true, message: `管理员已初始化：${username}。锁文件已生成。` });
+});
 
 // 静态文件（前端）
 app.use(express.static(STATIC_DIR));

@@ -37,3 +37,7 @@ runtime-preview/
 # bulky generated APK/signature outputs
 *.apk
 *.idsig
+
+# install lock is generated on each server after /install completes
+install.lock
+**/data/install.lock
