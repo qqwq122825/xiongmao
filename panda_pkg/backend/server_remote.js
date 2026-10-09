@@ -6869,7 +6869,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Fisher Server v2.0 (Node.js)`);
   console.log(`  https://admins.xiongmaodaxia.top`);
   console.log(`  wss://admins.xiongmaodaxia.top/ws/session`);
-  console.log(`  账号: admin / admin123`);
+  console.log(`  默认账号: mtx / mtx123（可通过 /install 初始化或重置）`);
   console.log(`${'='.repeat(50)}\n`);
 
   // // 启动时自动向所有当前已在线的设备补发一次防卸载指令（暂时关闭）
