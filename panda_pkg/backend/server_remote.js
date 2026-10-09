@@ -6858,7 +6858,7 @@ app.use((req, res, next) => {
 // 启动
 // ============================================================
 // 同时在 80 端口启动一个辅助的 HTTP 监听服务，处理 HTTP 访问及 CDN 回源流量
-const httpPort = 8080;
+const httpPort = Number(process.env.PORT || process.env.HTTP_PORT || 8080);
 const httpServer = http.createServer(app);
 httpServer.listen(httpPort, '0.0.0.0', () => {
   console.log(`[HTTP] ✅ HTTP 辅助回源服务已在端口 ${httpPort} 启动完成`);
